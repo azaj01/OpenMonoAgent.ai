@@ -40,8 +40,6 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
     private enum PaintKind { Conv, Full, Input, Sidebar }
     private readonly record struct PaintRequest(PaintKind Kind, string? InputText = null, int Cursor = 0);
 
-    // ── Animated frames ──────────────────────────────────────────────────
-
     private static readonly string[] SpinnerFrames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
     private static readonly string[] DotsFrames       = { ".", "..", "...", "....", ".....", "....", "...", ".." };
     private static readonly string[] HeartbeatFrames  = ["◐", "◓", "◑", "◒"];
@@ -92,6 +90,7 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
     private string[]? _prevSideFrame;
     private int _prevFrameWidth;
     private int _prevFrameHeight;
+    private int _prevInputContentRows = 1;
 
     private readonly Channel<PaintRequest> _paintChannel = Channel.CreateUnbounded<PaintRequest>(
         new UnboundedChannelOptions { SingleReader = true });
@@ -146,9 +145,9 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
     internal static string[] WrapInput(string text, int wrapW)
     {
         if (text.Length == 0) return [""];
-        var lineCount = text.Count(c => c == '\n') + 1;
-        if (lineCount >= 4)
-            return [$"[{lineCount} Lines Copied]"];
+        var logicalLines = text.Count(c => c == '\n') + 1;
+        if (logicalLines >= 4)
+            return [$"[{logicalLines} Lines Copied]"];
         var lines = new List<string>();
         foreach (var segment in text.Split('\n'))
         {
@@ -156,6 +155,8 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
             for (var pos = 0; pos < segment.Length; pos += wrapW)
                 lines.Add(segment.Substring(pos, Math.Min(wrapW, segment.Length - pos)));
         }
+        if (lines.Count >= 4)
+            return [$"[{lines.Count} Lines Copied]"];
         return lines.Count == 0 ? [""] : [.. lines];
     }
 
@@ -371,6 +372,7 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
     {
         _prevConvFrame = null;
         _prevSideFrame = null;
+        _prevInputContentRows = 0;
     }
 
     internal void StartPaintThread()
@@ -480,7 +482,6 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
 
         var now = Stopwatch.GetTimestamp();
 
-        // 3-second window for instantaneous tok/s
         _chunkTicks.Enqueue(now);
         var cutoff = now - 3L * Stopwatch.Frequency;
         while (_chunkTicks.Count > 1 && _chunkTicks.Peek() < cutoff)
@@ -852,7 +853,7 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
             var wrapW       = InputWrapWidth(mainW);
             var wrapped     = WrapInput(text, wrapW);
             var contentRows = Math.Clamp(wrapped.Length, 1, 5);
-            var isCollapsed = text.Count(c => c == '\n') + 1 >= 4;
+            var isCollapsed = wrapped.Length == 1 && wrapped[0].EndsWith("Copied]");
 
             var firstContentRow = Math.Max(1, _th - contentRows - 2);
 
@@ -868,7 +869,19 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
                 cursorRow = Math.Min(cursorRow, contentRows - 1);
             }
 
-            var sb = new StringBuilder((wrapW + 20) * contentRows + 32);
+            var sb = new StringBuilder((wrapW + 20) * contentRows + 256);
+
+            var prevRows = _prevInputContentRows;
+            _prevInputContentRows = contentRows;
+            if (prevRows > 0 && contentRows < prevRows)
+            {
+                var oldFirstContent = Math.Max(1, _th - prevRows - 2);
+                var divider = $"{BgInput}{Fk}{new string('─', mainW)}{R}";
+                for (var row = oldFirstContent - 1; row < firstContentRow - 1; row++)
+                    sb.Append($"{E}[{Math.Max(1, row + 1)};1H{BgMain}{new string(' ', mainW)}{R}");
+                sb.Append($"{E}[{Math.Max(1, firstContentRow - 1)};1H{divider}");
+            }
+
             for (var r = 0; r < contentRows; r++)
             {
                 var absRow   = Math.Max(1, firstContentRow + r);
@@ -1049,8 +1062,10 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
         var wrapW       = InputWrapWidth(w);
         var wrapped     = WrapInput(currentText, wrapW);
         var contentRows = Math.Clamp(wrapped.Length, 1, 5);
-        var isCollapsed = currentText.Count(c => c == '\n') + 1 >= 4;
+        var isCollapsed = wrapped.Length == 1 && wrapped[0].EndsWith("Copied]");
         var divider     = $"{BgInput}{Fk}{new string('─', w)}{R}";
+
+        _prevInputContentRows = contentRows;
 
         sb.Append($"{E}[{startRow + 1};1H{divider}");
 

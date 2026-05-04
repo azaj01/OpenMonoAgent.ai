@@ -438,7 +438,6 @@ static async Task<string> BuildSystemPrompt(AppConfig config, MemoryStore memory
         - Model: {config.Llm.Model}
         """);
 
-    // Available playbooks — listed so the LLM knows to call the Playbook tool
     if (playbookRegistry is not null)
     {
         var all = playbookRegistry.All;

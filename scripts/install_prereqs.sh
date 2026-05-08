@@ -360,44 +360,18 @@ if [ "$INSTALL_DOCKER_CE" = true ] || ! command -v docker &>/dev/null; then
         run $SUDO systemctl enable --now docker 2>/dev/null || true
     fi
 
-    # Re-exec this script under 'sg docker' so all remaining steps (and the
-    # subsequent install.sh) run with the docker group active. The user
-    # never needs to manually run 'newgrp docker'. exec replaces the current
-    # process; the re-run is fast because every apt/command check hits the
-    # already-installed branch.
-    if ! docker info &>/dev/null 2>&1 && id -nG 2>/dev/null | grep -qw docker; then
-        if command -v sg &>/dev/null && sg docker -c "docker info" &>/dev/null 2>&1; then
-            info "Re-launching with docker group active (no manual 'newgrp' needed)..."
-            exec sg docker -- bash "$0" "$@"
-        else
-            err "Docker group added but sg activation failed — a shell restart is needed."
-            err "Run ONE of the following to activate the docker group:"
-            err "  1. newgrp docker"
-            err "  2. exec su -l \$USER"
-            err "  3. Log out and back in"
-            err "Then resume installation with:  $REPO_DIR/openmono setup"
-            exit 1
-        fi
-    fi
+    # Note: docker group activation is handled by the openmono wrapper after
+    # this script exits — it detects the new membership via getent and re-execs
+    # the entire setup under sg docker. Do not re-exec here: re-running this
+    # script would replay interactive prompts (e.g. GPU mode) a second time.
 fi
 
 # Ensure user is in the docker group even when Docker was pre-installed.
+# The openmono wrapper handles sg re-exec after this script exits.
 if command -v docker &>/dev/null && ! id -nG 2>/dev/null | grep -qw docker; then
     run $SUDO groupadd docker 2>/dev/null || true
     run $SUDO usermod -aG docker "$USER" || true
     ok "Added '$USER' to the docker group"
-    if command -v sg &>/dev/null && sg docker -c "docker info" &>/dev/null 2>&1; then
-        info "Re-launching with docker group active (no manual 'newgrp' needed)..."
-        exec sg docker -- bash "$0" "$@"
-    else
-        err "Docker group added but sg activation failed — a shell restart is needed."
-        err "Run ONE of the following to activate the docker group:"
-        err "  1. newgrp docker"
-        err "  2. exec su -l \$USER"
-        err "  3. Log out and back in"
-        err "Then resume installation with:  openmono setup"
-        exit 1
-    fi
 fi
 
 if docker compose version &>/dev/null 2>&1; then

@@ -272,10 +272,10 @@ if [ "$OPENMONO_ROLE" != "agent" ]; then
         MODEL_ACCURACY="full"
         next_step "Downloading Qwen3.6-27B-Q4_K_M (~15GB) [GPU 24GB+ — full accuracy]"
     elif [ "$_GPU_TIER" -eq 16 ]; then
-        MODEL_NAME="Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
-        MODEL_URL="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
+        MODEL_NAME="Qwen3.6-27B-UD-IQ3_XXS.gguf"
+        MODEL_URL="https://huggingface.co/unsloth/Qwen3.6-27B-GGUF/resolve/main/Qwen3.6-27B-UD-IQ3_XXS.gguf"
         MODEL_ACCURACY="lower"
-        next_step "Downloading Qwen3.6-35B-A3B-Q3 (~12GB) [GPU 16GB — lower accuracy]"
+        next_step "Downloading Qwen3.6-27B-UD-IQ3_XXS (~12GB) [GPU 16GB — lower accuracy]"
     elif [ "$_GPU_TIER" -eq 12 ]; then
         MODEL_NAME="Qwen3.5-9B-Q4_K_M.gguf"
         MODEL_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
@@ -414,8 +414,13 @@ if [ "${GPU_MODE:-0}" = "1" ]; then
     # 24GB tier: q8 kv cache (high quality); 16GB/12GB tiers: q4 kv cache (saves VRAM)
     if [ "$_GPU_TIER" -ge 24 ]; then
         _KV_K="q8_0"; _KV_V="q8_0"
+        _CTX=196608
+    elif [ "$_GPU_TIER" -ge 16 ]; then
+        _KV_K="q4_0"; _KV_V="q4_0"
+        _CTX=180224
     else
         _KV_K="q4_0"; _KV_V="q4_0"
+        _CTX=196608
     fi
     [ "$MODEL_ACCURACY" = "lower" ] && info "Lower accuracy model selected — q4 kv cache enabled to fit $(( (_VRAM_MB + 512) / 1024 ))GB VRAM"
     info "Writing GPU override: $OVERRIDE_FILE"
@@ -429,7 +434,7 @@ services:
       --alias $MODEL_ALIAS
       --host 0.0.0.0
       --port 7474
-      --ctx-size 196608
+      --ctx-size $_CTX
       --threads 14
       --n-gpu-layers 99
       --flash-attn on

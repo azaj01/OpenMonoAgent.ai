@@ -213,7 +213,7 @@ public sealed class TerminalRenderer : IRenderer
         }
     }
 
-    public void EndAssistantResponse(int tokens = 0)
+    public void EndAssistantResponse(TurnMetrics? metrics = null)
     {
         ClearThinkingAnimation();
         if (_inAssistantResponse)
@@ -221,10 +221,25 @@ public sealed class TerminalRenderer : IRenderer
             _streamStopwatch.Stop();
             Console.WriteLine();
 
-            var elapsed = _streamStopwatch.Elapsed;
-            var tokSec = elapsed.TotalSeconds > 0 ? _streamTokenCount / elapsed.TotalSeconds : 0;
             _console.MarkupLine($"  [dim green]─────────────────────────────────────────────────[/]");
-            _console.MarkupLine($"  [dim]{_streamTokenCount} chunks · {elapsed.TotalSeconds:F1}s · {tokSec:F0} tok/s[/]");
+            if (metrics is { PromptTokens: > 0 } m)
+            {
+                var genTime = m.TotalElapsed - m.TimeToFirstToken;
+                var evalTps = m.TimeToFirstToken.TotalSeconds > 0.001 ? m.PromptTokens / m.TimeToFirstToken.TotalSeconds : 0;
+                var genTps  = genTime.TotalSeconds > 0.001 ? m.CompletionTokens / genTime.TotalSeconds : 0;
+                var line = $"[dim]TTFT [/]{m.TimeToFirstToken.TotalSeconds:F1}s";
+                if (evalTps > 0) line += $"[dim] · eval [/]{evalTps:F0}/s";
+                if (genTps  > 0) line += $"[dim] · gen [/]{genTps:F0}/s";
+                if (m.CompletionTokens > 0) line += $"[dim] · [/]{m.CompletionTokens}[dim] tok[/]";
+                line += $"[dim] · [/]{m.TotalElapsed.TotalSeconds:F1}s";
+                _console.MarkupLine($"  {line}");
+            }
+            else
+            {
+                var elapsed = _streamStopwatch.Elapsed;
+                var tokSec = elapsed.TotalSeconds > 0 ? _streamTokenCount / elapsed.TotalSeconds : 0;
+                _console.MarkupLine($"  [dim]{_streamTokenCount} chunks · {elapsed.TotalSeconds:F1}s · {tokSec:F0}/s[/]");
+            }
             _console.WriteLine();
         }
         _inAssistantResponse = false;

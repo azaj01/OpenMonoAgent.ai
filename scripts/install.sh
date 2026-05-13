@@ -430,8 +430,8 @@ services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     command: >
-      --model /models/$MODEL_NAME
-      --alias $MODEL_ALIAS
+      --model /models/\${MODEL_NAME}
+      --alias \${MODEL_ALIAS:-model}
       --host 0.0.0.0
       --port 7474
       --ctx-size $_CTX
@@ -458,6 +458,26 @@ services:
               capabilities: [gpu]
 EOF
     ok "GPU override written"
+    printf "     ${DIM}model: $MODEL_NAME  ·  ctx: $(( _CTX / 1024 ))k  ·  kv: ${_KV_K}  ·  layers: 99  ·  accuracy: ${MODEL_ACCURACY:-full}${NC}\n"
+    printf "     ${DIM}config: $OVERRIDE_FILE  (restart: docker compose up -d llama-server)${NC}\n"
+
+    printf "\n  ${BOLD}${CYAN}Tuning knobs${NC}\n"
+    printf "     ${DIM}--ctx-size N      halve to free ~half the KV-cache VRAM${NC}\n"
+    printf "     ${DIM}                  presets: 32k=32768  64k=65536  128k=131072  192k=196608${NC}\n"
+    printf "     ${DIM}--cache-type-k/v  f16 (best) → q8_0 → q5_1 → q4_1 → q4_0 (least VRAM)${NC}\n"
+    printf "     ${DIM}--n-gpu-layers    99=all on GPU; lower to spill layers to CPU RAM${NC}\n"
+    printf "     ${DIM}--parallel N      N concurrent slots, each costs ctx-size of KV cache${NC}\n"
+
+    printf "\n  ${BOLD}${CYAN}Swapping models${NC}\n"
+    printf "     ${DIM}Any GGUF works — different family or a different quant of this model${NC}\n"
+    printf "     ${DIM}1.  Copy .gguf into $INSTALL_DIR/models/${NC}\n"
+    printf "     ${DIM}2.  docker/.env → MODEL_NAME=file.gguf  MODEL_ALIAS=file${NC}\n"
+    printf "     ${DIM}3.  docker compose up -d llama-server${NC}\n"
+    printf "     \n"
+    printf "     ${DIM}Quants:  Q6_K > Q5_K_M > Q4_K_M > Q3_K_M  (quality vs VRAM)${NC}\n"
+    printf "     ${DIM}IQ:      IQ3_XXS / IQ4_XS match one tier higher quality at lower size${NC}\n"
+    printf "     ${DIM}MoE:     A3B / A22B suffix — only active params computed, runs faster${NC}\n"
+    printf "     ${DIM}Tier or GPU↔CPU change: re-run openmono setup${NC}\n"
 else
     info "Writing CPU override: $OVERRIDE_FILE"
     # Thread count tuned to physical cores (SMT hurts llama.cpp throughput).
@@ -470,8 +490,8 @@ services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-vulkan
     command: >
-      --model /models/$MODEL_NAME
-      --alias $MODEL_ALIAS
+      --model /models/\${MODEL_NAME}
+      --alias \${MODEL_ALIAS:-model}
       --host 0.0.0.0
       --port 7474
       --ctx-size 196608
@@ -489,6 +509,25 @@ services:
       \${LLAMA_API_KEY:+--api-key \${LLAMA_API_KEY}}
 EOF
     ok "CPU override written"
+    printf "     ${DIM}model: $MODEL_NAME  ·  ctx: 192k  ·  kv: q8_0  ·  threads: $CPU_THREADS (physical cores)${NC}\n"
+    printf "     ${DIM}config: $OVERRIDE_FILE  (restart: docker compose up -d llama-server)${NC}\n"
+
+    printf "\n  ${BOLD}${CYAN}Tuning knobs${NC}\n"
+    printf "     ${DIM}--ctx-size N      halve to free ~half the KV-cache RAM, speeds up prompt processing${NC}\n"
+    printf "     ${DIM}                  presets: 32k=32768  64k=65536  128k=131072  192k=196608${NC}\n"
+    printf "     ${DIM}--cache-type-k/v  f16 (best) → q8_0 → q5_1 → q4_1 → q4_0 (least RAM)${NC}\n"
+    printf "     ${DIM}--threads N       physical cores optimal ($CPU_THREADS); SMT/HT hurts llama.cpp throughput${NC}\n"
+
+    printf "\n  ${BOLD}${CYAN}Swapping models${NC}\n"
+    printf "     ${DIM}Any GGUF works — different family or a different quant of this model${NC}\n"
+    printf "     ${DIM}1.  Copy .gguf into $INSTALL_DIR/models/${NC}\n"
+    printf "     ${DIM}2.  docker/.env → MODEL_NAME=file.gguf  MODEL_ALIAS=file${NC}\n"
+    printf "     ${DIM}3.  docker compose up -d llama-server${NC}\n"
+    printf "     \n"
+    printf "     ${DIM}Quants:  Q6_K > Q5_K_M > Q4_K_M > Q3_K_M  (quality vs RAM)${NC}\n"
+    printf "     ${DIM}IQ:      IQ3_XXS / IQ4_XS match one tier higher quality at lower size${NC}\n"
+    printf "     ${DIM}MoE:     A3B / A22B suffix — only active params computed, runs faster${NC}\n"
+    printf "     ${DIM}Switch to GPU: re-run openmono setup${NC}\n"
 
     # ── CPU tuning: request the 'performance' power profile ────────────────
     # llama.cpp on CPU is limited by sustained clock speed. The default
@@ -515,6 +554,15 @@ EOF
         info " 'cpupower frequency-set -g performance' depending on your distro)."
     fi
 fi
+
+DOCKER_ENV_FILE="$INSTALL_DIR/docker/.env"
+if [ -f "$DOCKER_ENV_FILE" ]; then
+    grep -v -E "^MODEL_NAME=|^MODEL_ALIAS=" "$DOCKER_ENV_FILE" > "${DOCKER_ENV_FILE}.tmp" || true
+    mv "${DOCKER_ENV_FILE}.tmp" "$DOCKER_ENV_FILE"
+fi
+printf "MODEL_NAME=%s\nMODEL_ALIAS=%s\n" "$MODEL_NAME" "$MODEL_ALIAS" >> "$DOCKER_ENV_FILE"
+detail "Persisted MODEL_NAME=$MODEL_NAME to $DOCKER_ENV_FILE"
+
 fi  # End of Step 6 (skipped on agent role)
 
 # ── Step 7: Build Docker images (role-specific) ───────────────────────────────
@@ -576,6 +624,12 @@ if [ "$OPENMONO_ROLE" != "agent" ]; then
     fi
 
     export LLAMA_PORT
+    if [ -f "$DOCKER_ENV_FILE" ]; then
+        grep -v "^LLAMA_PORT=" "$DOCKER_ENV_FILE" > "${DOCKER_ENV_FILE}.tmp" || true
+        mv "${DOCKER_ENV_FILE}.tmp" "$DOCKER_ENV_FILE"
+    fi
+    echo "LLAMA_PORT=${LLAMA_PORT}" >> "$DOCKER_ENV_FILE"
+    detail "Persisted LLAMA_PORT=${LLAMA_PORT} to $DOCKER_ENV_FILE"
 
     info "Starting daemon on port ${LLAMA_PORT}..."
     if ! run docker compose up -d llama-server; then

@@ -538,15 +538,25 @@ internal sealed partial class AnsiPainter(AppConfig config, SessionState session
         }
     }
 
-    internal void EndAssistantResponse(int tokens)
+    internal void EndAssistantResponse(TurnMetrics? metrics)
     {
         _turnTimer.Stop();
         _streaming = false;
-        var sec = _turnTimer.Elapsed.TotalSeconds;
         ComputeWindowStats();
         string finalText;
         lock (_streamLock) { finalText = _streamBuf.ToString(); _streamBuf.Clear(); }
-        var footer = tokens > 0 ? $"{sec:F1}s · {tokens} tok" : $"{sec:F1}s";
+        string footer;
+        if (metrics is { PromptTokens: > 0 } m)
+        {
+            var genTime = m.TotalElapsed - m.TimeToFirstToken;
+            var genTps = genTime.TotalSeconds > 0.001 ? m.CompletionTokens / genTime.TotalSeconds : 0;
+            footer = $"TTFT {m.TimeToFirstToken.TotalSeconds:F1}s · gen {genTps:F0}/s · {m.CompletionTokens} tok · {m.TotalElapsed.TotalSeconds:F1}s";
+        }
+        else
+        {
+            var sec = _turnTimer.Elapsed.TotalSeconds;
+            footer = $"{sec:F1}s";
+        }
         AddMessage(new Msg("assistant", finalText)
         {
             Footer = footer

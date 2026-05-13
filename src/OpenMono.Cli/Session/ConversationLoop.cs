@@ -174,6 +174,9 @@ public sealed class ConversationLoop : IDisposable
             var thinkingChars = 0;
             var indicatorShown = false;
             var turnTokens = 0;
+            var requestSw = Stopwatch.StartNew();
+            var ttft = TimeSpan.Zero;
+            UsageInfo? lastUsage = null;
 
             var context = BuildToolContext();
             var inFlightTasks = new Dictionary<string, Task<ToolResult>>();
@@ -184,6 +187,8 @@ public sealed class ConversationLoop : IDisposable
                 if (!t.IsCanceled) { _output.ShowWaitingIndicator(); indicatorShown = true; }
             }, TaskScheduler.Default);
 
+            try
+            {
             await foreach (var chunk in _llm.StreamChatAsync(contextWindow, toolDefs, options, ct))
             {
                 if (!indicatorCts.IsCancellationRequested)
@@ -202,6 +207,7 @@ public sealed class ConversationLoop : IDisposable
 
                 if (!receivedFirstChunk)
                 {
+                    ttft = requestSw.Elapsed;
                     if (thinkingStarted && !thinkingCollapsed)
                     {
                         _output.CollapseThinking(thinkingChars);
@@ -236,6 +242,7 @@ public sealed class ConversationLoop : IDisposable
 
                 if (chunk.Usage is not null)
                 {
+                    lastUsage = chunk.Usage;
                     _session.TotalTokensUsed += chunk.Usage.TotalTokens;
                     _session.Meta.TokenTracker?.RecordUsage(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens);
                     turnTokens += chunk.Usage.TotalTokens;
@@ -244,11 +251,25 @@ public sealed class ConversationLoop : IDisposable
                 if (chunk.IsComplete)
                     break;
             }
+            }
+            finally
+            {
+                if (!indicatorCts.IsCancellationRequested)
+                    indicatorCts.Cancel();
+                await indicatorTask;
+                _output.ClearWaitingIndicator();
+            }
 
             if (thinkingStarted && !thinkingCollapsed)
                 _output.CollapseThinking(thinkingChars);
 
-            _output.EndAssistantResponse(turnTokens);
+            _output.EndAssistantResponse(new TurnMetrics
+            {
+                PromptTokens = lastUsage?.PromptTokens ?? 0,
+                CompletionTokens = lastUsage?.CompletionTokens ?? turnTokens,
+                TimeToFirstToken = ttft,
+                TotalElapsed = requestSw.Elapsed,
+            });
 
             var assistantMsg = new Message
             {
@@ -773,5 +794,8 @@ public sealed class ConversationLoop : IDisposable
         AskUser = (question, ct) => _input.AskUserAsync(question, ct),
         FileHistory = _session.Meta.FileHistory,
         Cursors = _cursorStore,
+        BeginResponse = _output.StartAssistantResponse,
+        EndResponse = () => _output.EndAssistantResponse(),
+        StreamText = _output.StreamText,
     };
 }

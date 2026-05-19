@@ -439,68 +439,18 @@ fi
 
 ok "Docker images built"
 
-# ── Step 8: Start llama-server natively (inference + full only) ───────────────
+# ── Step 8: Start llama-server (inference + full only) ──────────────────────
 
 if [ "$OPENMONO_ROLE" != "agent" ]; then
     next_step "Starting llama-server (Metal)"
 
-    LLAMA_PORT="${LLAMA_PORT:-7474}"
-    LLAMA_LOG="$HOME/.openmono/logs/llama-server.log"
-    mkdir -p "$(dirname "$LLAMA_LOG")"
-
-    # Kill any existing process on this port before starting fresh.
-    if lsof -i ":${LLAMA_PORT}" &>/dev/null 2>&1; then
-        warn "Port ${LLAMA_PORT} already in use — stopping existing process"
-        lsof -ti ":${LLAMA_PORT}" | xargs kill -9 2>/dev/null || true
-        sleep 1
-    fi
-
-    export LLAMA_PORT
-
-    CPU_THREADS="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
-
-    # --n-gpu-layers 99 offloads all layers to Metal; llama.cpp auto-detects the
-    # Metal backend on arm64 without any additional flags.
-    nohup llama-server \
-        --model "$MODEL_FILE" \
-        --alias "$MODEL_ALIAS" \
-        --host 0.0.0.0 \
-        --port "$LLAMA_PORT" \
-        --n-gpu-layers 99 \
-        --ctx-size "$_CTX_SIZE" \
-        --threads "$CPU_THREADS" \
-        --batch-size 2048 \
-        --ubatch-size 512 \
-        --flash-attn \
-        --cache-type-k q8_0 \
-        --cache-type-v q8_0 \
-        --parallel 1 \
-        --jinja \
-        --reasoning off \
-        --metrics \
-        ${LLAMA_API_KEY:+--api-key ${LLAMA_API_KEY}} \
-        > "$LLAMA_LOG" 2>&1 &
-
-    info "Waiting for llama-server to become healthy (model load: 1–3 min)..."
-    HEALTHY=false
-    for i in $(seq 1 36); do
-        if curl -sf "http://localhost:${LLAMA_PORT}/health" &>/dev/null; then
-            HEALTHY=true
-            break
-        fi
-        sleep 5
-        printf "."
-    done
-    echo ""
-
-    if [ "$HEALTHY" = true ]; then
-        ok "llama-server healthy on port ${LLAMA_PORT} (Metal GPU)"
-    else
-        warn "llama-server did not become healthy within 180s."
-        warn "Check the log: tail -f $LLAMA_LOG"
-        if [ "$OPENMONO_VERBOSE" != "1" ]; then
-            warn "Re-run with OPENMONO_VERBOSE=1 for detailed output."
-        fi
+    # Use openmono start to launch llama-server via llama-native.sh
+    # This ensures consistency between install and runtime startup paths.
+    export LLAMA_PORT="${LLAMA_PORT:-7474}"
+    if ! "$REPO_DIR/openmono" start; then
+        warn "llama-server startup did not complete cleanly"
+        warn "Check the log: openmono logs"
+        warn "Or restart manually: openmono start"
     fi
 fi
 

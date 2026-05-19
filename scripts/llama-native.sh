@@ -53,12 +53,22 @@ _native_start_llama() {
         --n-gpu-layers 99 \
         --ctx-size "$LLAMA_CTX_SIZE" \
         --threads "$cpu_threads" --batch-size 2048 --ubatch-size 512 \
-        --flash-attn \
+        --flash-attn on \
         --cache-type-k q8_0 --cache-type-v q8_0 \
         --parallel 1 --jinja --reasoning off --metrics \
         ${LLAMA_API_KEY:+--api-key "${LLAMA_API_KEY}"} \
         > "$log_file" 2>&1 &
-    disown $!
+    local pid=$!
+    disown $pid
+
+    # Sanity check: ensure process didn't die immediately
+    sleep 0.5
+    if ! kill -0 "$pid" 2>/dev/null; then
+        err "llama-server failed to start (process exited immediately)"
+        err "Check the log for details:"
+        err "  tail -20 $log_file"
+        return 1
+    fi
 }
 
 # Stop native llama-server by port with safety check (verify it's really llama-server).

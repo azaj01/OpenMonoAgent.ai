@@ -24,7 +24,7 @@ RUN dotnet restore src/OpenMono.Cli/OpenMono.Cli.csproj
 COPY src/OpenMono.Cli/ src/OpenMono.Cli/
 RUN dotnet publish src/OpenMono.Cli/OpenMono.Cli.csproj \
     -c Release \
-    -o /app/publish \
+    -o /app \
     --no-restore \
     /p:UseAppHost=true
 
@@ -50,7 +50,7 @@ RUN mkdir -p /home/agent && chmod 1777 /home/agent
 # MCP servers shipped with the agent (structural + semantic graph queries).
 RUN pip3 install --no-cache-dir --break-system-packages code-review-graph graphifyy
 
-COPY --from=build /app/publish /usr/local/bin/openmono/
+COPY --from=build /app /usr/local/bin/openmono/
 ENV PATH="/usr/local/bin/openmono:${PATH}"
 
 # Sessions live in /data. ACP callers MUST mount a named volume here

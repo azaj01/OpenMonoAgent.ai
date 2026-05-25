@@ -592,8 +592,17 @@ cmd_agent() {
         fi
     fi
 
-    # Pass configured endpoint to container
-    export OPENMONO_ENDPOINT="$cfg_endpoint"
+    # Pass configured endpoint to container.
+    # When the configured endpoint is loopback (Linux install.sh writes
+    # http://localhost:7474) and we're running llama-server in docker, that
+    # address points at the agent container's own loopback, not the host.
+    # Rewrite to the compose service name so both containers talk over
+    # openmono-network. macOS keeps host.docker.internal as-is.
+    if [[ "$is_local" == "true" && "$NATIVE_INFERENCE" != "true" ]]; then
+        export OPENMONO_ENDPOINT="http://llama-server:7474"
+    else
+        export OPENMONO_ENDPOINT="$cfg_endpoint"
+    fi
 
     docker compose run --rm \
         --user "$(id -u):$(id -g)" \

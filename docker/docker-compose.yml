@@ -48,9 +48,6 @@ services:
       dockerfile: docker/Dockerfile.agent
     container_name: openmono-agent
     profiles: ["full", "agent"]
-    # Clear the image's default CMD (--acp-only) so the entrypoint runs the
-    # interactive TUI. Compose v2 treats `command: []` as "no default CMD".
-    command: []
     volumes:
       - ${WORKSPACE:-.}:/workspace
       - ${HOME}/.openmono:/home/agent/.openmono
@@ -64,6 +61,10 @@ services:
       - OPENMONO_API_KEY=${OPENMONO_API_KEY:-${LLAMA_API_KEY:-}}
       - OPENMONO_VISION_ENABLED=${OPENMONO_VISION_ENABLED:-0}
       - OPENMONO_CONTEXT_SIZE=${CTX_SIZE:-196608}
+      # TUI in the foreground for the user, ACP server in the background on
+      # 7475 so IDE clients and the VS Code extension can connect to the same
+      # session. Disable with OPENMONO_ACP_ENABLED=0.
+      - OPENMONO_ACP_ENABLED=${OPENMONO_ACP_ENABLED:-1}
     stdin_open: true
     tty: true
     working_dir: /workspace

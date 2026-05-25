@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.6
 #
-# OpenMono agent image — two consumers:
+# OpenMono agent image — three modes selected by env vars at runtime:
 #   1. VS Code extension (DockerManager) and `public/scripts/acp-smoke.sh`:
-#      headless ACP server on 7475. Uses the default CMD (--acp-only).
+#      OPENMONO_ACP_ONLY=1 → headless ACP server on 7475.
 #   2. `public/docker/docker-compose.yml` agent service:
-#      interactive TUI on a mounted workspace. Overrides `command: []`
-#      to clear the default CMD so `openmono` starts without --acp-only.
+#      OPENMONO_ACP_ENABLED=1 → interactive TUI + ACP server in the background.
+#   3. Plain `docker run -it openmono/agent` → interactive TUI only.
 #
 # Build from the `public/` directory:
 #   docker build -f public/docker/Dockerfile.agent -t openmono/agent:dev public/
@@ -68,8 +68,8 @@ EXPOSE 7475
 ENV ACP_PORT=7475 \
     ASPNETCORE_URLS=http://0.0.0.0:7475
 
-# Default to ACP headless mode (the primary consumer is the extension).
-# docker-compose's agent service overrides `command: []` to clear CMD and
-# get the interactive TUI instead.
+# Consumers pick their mode via env vars instead of overriding CMD:
+#   - VS Code extension / acp-smoke.sh: set OPENMONO_ACP_ONLY=1 → headless ACP.
+#   - docker-compose agent service:     set OPENMONO_ACP_ENABLED=1 → TUI + ACP.
+# The image's default (no env, no flag) is the interactive TUI.
 ENTRYPOINT ["openmono"]
-CMD ["--acp-only"]

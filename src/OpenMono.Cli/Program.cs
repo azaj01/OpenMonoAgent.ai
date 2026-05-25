@@ -24,6 +24,12 @@ var noAcp = false;
 int? acpPort = null;
 var acpOnly = false;
 
+// Env-var fallback for --acp-only (set by the VS Code extension for headless
+// detached containers). The OPENMONO_ACP_ENABLED counterpart is consumed
+// inside RunAgentAsync where AcpServerSettings.Enabled lives.
+if (EnvFlag_Truthy(Environment.GetEnvironmentVariable("OPENMONO_ACP_ONLY")))
+    acpOnly = true;
+
 for (var i = 0; i < args.Length; i++)
 {
     var arg = args[i];
@@ -97,6 +103,9 @@ for (var i = 0; i < args.Length; i++)
 
 await RunAgentAsync(endpoint, model, workdir, configPath, verbose, showDetail, useTui, noAcp, acpPort, acpOnly);
 return 0;
+
+static bool EnvFlag_Truthy(string? v) =>
+    v is not null && (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
 
 static async Task RunAgentAsync(string? endpoint, string? model, string? workdir, string? configPath, bool verbose = false, bool showDetail = false, bool? useTui = null, bool noAcp = false, int? acpPort = null, bool acpOnly = false)
 {
@@ -220,6 +229,11 @@ static async Task RunAgentAsync(string? endpoint, string? model, string? workdir
 
 
     if (acpOnly) acp.Enabled = true;
+    // OPENMONO_ACP_ENABLED=1 turns on the ACP server alongside the TUI without
+    // forcing headless mode (compose's agent service uses this to expose a
+    // local ACP endpoint while the user interacts with the TUI).
+    if (EnvFlag_Truthy(Environment.GetEnvironmentVariable("OPENMONO_ACP_ENABLED")))
+        acp.Enabled = true;
 
     if (acp.Enabled && !noAcp)
     {
